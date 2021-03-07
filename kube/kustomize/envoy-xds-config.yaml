@@ -27,7 +27,7 @@ static_resources:
       name: xds
       type: STRICT_DNS
       load_assignment:
-        cluster_name: xds_cluster
+        cluster_name: xds
         endpoints:
           - lb_endpoints:
               - endpoint:

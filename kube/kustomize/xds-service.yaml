@@ -5,6 +5,7 @@ metadata:
   labels:
     app: xds
 spec:
+  type: NodePort
   ports:
     - name: grpc
       port: 9000
