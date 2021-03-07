@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - envoy-pod.yaml
+  - envoy-service.yaml
+  - xds-pod.yaml
+  - xds-service.yaml
+
+configMapGenerator:
+- name: manifest-config
+  files:
+  - manifest.yaml
+- name: envoy-config
+  files:
+    - envoy-xds-config.yaml

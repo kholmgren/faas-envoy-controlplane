@@ -1,0 +1,52 @@
+name: contact-functions
+location: build/libs/contact-functions-1.0-all.jar
+
+#TODO: env vars must be set at startup of container -- not implemented yet
+environment:
+  AUTHZ_BASE_URL: "http://authz:8081"
+
+authorization:
+  extensions:
+    namespace_service: api
+    relation: viewer
+
+#service_dependencies:
+#  - authz
+#  - contact_store
+
+paths:
+  /create:
+    handler: contacts.functions.create.CreateContact
+    authorization:
+      extensions:
+        namespace_object: contact
+        relation: owner
+
+  /delete:
+    handler: contacts.functions.delete.DeleteContact
+    authorization:
+      objectid_ptr: /id
+      extensions:
+        namespace_object: contact
+        relation: owner
+
+  /read:
+    handler: contacts.functions.read.ReadContact
+    authorization:
+      objectid_ptr: /id
+      extensions:
+        namespace_object: contact
+
+  /update:
+    handler: contacts.functions.update.UpdateContact
+    authorization:
+      objectid_ptr: /id
+      extensions:
+        namespace_object: contact
+        relation: editor
+
+streams:
+  - in_topic: source-events
+    in_group: derp-group
+    out_topic: derped-events
+    handler: contacts.functions.create.UpdateContact

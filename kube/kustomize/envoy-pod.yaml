@@ -1,0 +1,57 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: invoker
+  labels:
+    app: invoker
+spec:
+  volumes:
+    - name: manifest-volume
+      configMap:
+        name: manifest-config
+    - name: envoy-volume
+      configMap:
+        name: envoy-config
+  containers:
+    - name: envoy
+      image: docker.io/envoyproxy/envoy:v1.17-latest
+      args:
+        - '-c'
+        - '/etc/envoy/envoy-xds-config.yaml'
+        - '-l'
+        - 'debug'
+#        - '--component-log-level'
+#        - 'upstream:debug,connection:trace'
+        - '--service-node'
+        - 'front-proxy'
+        - '--service-cluster'
+        - 'front-proxy'
+      ports:
+        - name: ingress
+          containerPort: 18000
+          protocol: TCP
+      resources: { }
+      volumeMounts:
+        - name: envoy-volume
+          mountPath: /etc/envoy
+    - name: invoker
+      image: docker.io/jmalloc/echo-server
+      env:
+        - name: PORT
+          value: '8080'
+        - name: LOG_HTTP_BODY
+          value: 'true'
+      ports:
+        - name: api
+          containerPort: 8080
+          protocol: TCP
+      volumeMounts:
+        - name: manifest-volume
+          mountPath: /etc/faas
+
+    #for debug only--remove
+    - name: debug
+      image: alpine/httpie
+      command:
+        - /bin/sleep
+        - 3650d

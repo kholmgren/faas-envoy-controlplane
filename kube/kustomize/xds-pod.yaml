@@ -1,0 +1,32 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: xds
+  labels:
+    app: xds
+spec:
+  volumes:
+    - name: manifest-volume
+      configMap:
+        name: manifest-config
+  containers:
+    - name: xds-controlplane
+      image: docker.io/kettil/faas-envoy-controlplane
+      args:
+        - 'serve'
+        - '--debug'
+        - '/etc/faas/manifest.yaml'
+      ports:
+        - name: grpc
+          containerPort: 9000
+          protocol: TCP
+      volumeMounts:
+        - name: manifest-volume
+          mountPath: /etc/faas
+
+    #for debug only--remove
+    - name: debug
+      image: alpine/httpie
+      command:
+        - /bin/sleep
+        - 3650d
