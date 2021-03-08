@@ -5,7 +5,10 @@ import (
 	"fmt"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	envoy_extensions_filters_http_ext_authz_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	extauthzv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	upstreamshttpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	"github.com/golang/protobuf/ptypes/duration"
+
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoverygrpc "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -15,10 +18,8 @@ import (
 	runtimeservice "github.com/envoyproxy/go-control-plane/envoy/service/runtime/v3"
 	secretservice "github.com/envoyproxy/go-control-plane/envoy/service/secret/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
-	"github.com/golang/protobuf/ptypes/any"
-	"github.com/golang/protobuf/ptypes/duration"
-
 	"github.com/golang/protobuf/ptypes"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/kholmgren/faas-envoy-controlplane/internal"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
@@ -40,10 +41,9 @@ import (
 )
 
 var (
-	manifestFile string
-	l            internal.Logger
-	port         uint
-	nodeID       string
+	l      internal.Logger
+	port   uint
+	nodeID string
 )
 
 // serveCmd represents the serve command
@@ -60,7 +60,7 @@ to quickly create a Cobra application.`,
 	Args: cobra.MaximumNArgs(1),
 
 	Run: func(cmd *cobra.Command, args []string) {
-		serve(cmd, args)
+		serve(args)
 	},
 }
 
@@ -76,14 +76,14 @@ func init() {
 		&port, "port", "", 9000, "xDS management server port")
 
 	serveCmd.PersistentFlags().StringVarP(
-		&nodeID, "nodeID", "", "faas", "Node ID")
+		&nodeID, "node-id", "", "faas-envoy", "Node ID")
 }
 
 const (
 	grpcMaxConcurrentStreams = 1000000
 )
 
-func serve(cmd *cobra.Command, args []string) {
+func serve(args []string) {
 	manifestFile := args[0]
 
 	_, err := os.Stat(manifestFile)
@@ -105,7 +105,7 @@ func serve(cmd *cobra.Command, args []string) {
 	l.Infof("--- # manifest\n%v\n\n", string(manifestBytes))
 
 	// Create a cache
-	snapshotCache := cachev3.NewSnapshotCache(false, cachev3.IDHash{}, l)
+	snapshotCache := cachev3.NewSnapshotCache(true, cachev3.IDHash{}, l)
 
 	// Create the snapshot that we'll serve to Envoy
 	snapshot := generateSnapshot(manifest)
@@ -114,11 +114,11 @@ func serve(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	dump, err := yaml.Marshal(&snapshot)
-	if err != nil {
-		l.Errorf("error: %v", err)
-	}
-	l.Infof("--- # snapshot\n%s\n\n", string(dump))
+	//dump, err := yaml.Marshal(&snapshot)
+	//if err != nil {
+	//	l.Errorf("error: %v", err)
+	//}
+	//l.Infof("--- # snapshot\n%s\n\n", string(dump))
 
 	// Add the snapshot to the cache
 	if err := snapshotCache.SetSnapshot(nodeID, snapshot); err != nil {
@@ -133,7 +133,7 @@ func serve(cmd *cobra.Command, args []string) {
 
 	log.Printf("\nxDS server listening on port %d\n\n", port)
 
-	runServer(srv, port)
+	err = runServer(srv, port)
 	if err != nil {
 		l.Errorf(err.Error())
 		panic(err)
@@ -192,13 +192,33 @@ func generateSnapshot(manifest internal.Manifest) cache.Snapshot {
 		routes = append(routes, makeRoute(false, path, "invoker", materialized))
 	}
 
+	httpProtocolOptionsAny, err := ptypes.MarshalAny(
+		&upstreamshttpv3.HttpProtocolOptions{
+			UpstreamProtocolOptions: &upstreamshttpv3.HttpProtocolOptions_ExplicitHttpConfig_{
+				ExplicitHttpConfig: &upstreamshttpv3.HttpProtocolOptions_ExplicitHttpConfig{
+					ProtocolConfig: &upstreamshttpv3.HttpProtocolOptions_ExplicitHttpConfig_Http2ProtocolOptions{
+						Http2ProtocolOptions: &core.Http2ProtocolOptions{},
+					},
+				},
+			},
+		})
+
+	if err != nil {
+		panic(err)
+	}
+
+	authzCluster := makeCluster("authz", "authz", 8080)
+	authzCluster.TypedExtensionProtocolOptions = map[string]*any.Any{
+		"envoy.extensions.upstreams.http.v3.HttpProtocolOptions": httpProtocolOptionsAny,
+	}
+
 	return cache.NewSnapshot(
 		"1",
 		[]types.Resource{}, // endpoints
 		[]types.Resource{
 			makeCluster("invoker", "invoker", 8080),
 			makeCluster("acl_api", "authz", 8081),
-			makeCluster("authz", "authz", 8080),
+			authzCluster,
 		}, // clusters
 		[]types.Resource{},                     // routes
 		[]types.Resource{makeListener(routes)}, // listeners
@@ -240,19 +260,19 @@ func makeCluster(name string, host string, port uint32) *cluster.Cluster {
 
 func makeListener(routes []*route.Route) *listener.Listener {
 	extAuthAny, err := ptypes.MarshalAny(
-		&envoy_extensions_filters_http_ext_authz_v3.ExtAuthz{
-			TransportApiVersion:    2, //3, zero-based enum
+		&extauthzv3.ExtAuthz{
+			TransportApiVersion:    core.ApiVersion_V3,
 			IncludePeerCertificate: true,
-			WithRequestBody: &envoy_extensions_filters_http_ext_authz_v3.BufferSettings{
+			WithRequestBody: &extauthzv3.BufferSettings{
 				MaxRequestBytes:     65536,
 				AllowPartialMessage: false,
 				PackAsBytes:         false,
 			},
 
-			Services: &envoy_extensions_filters_http_ext_authz_v3.ExtAuthz_GrpcService{
+			Services: &extauthzv3.ExtAuthz_GrpcService{
 				GrpcService: &core.GrpcService{
 					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds"},
+						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "authz"},
 					},
 					Timeout: &duration.Duration{Seconds: 1},
 				},
@@ -265,18 +285,20 @@ func makeListener(routes []*route.Route) *listener.Listener {
 
 	managerAny, err := ptypes.MarshalAny(&hcm.HttpConnectionManager{
 		CodecType:  hcm.HttpConnectionManager_AUTO,
-		StatPrefix: "ingress_http",
+		StatPrefix: "http",
 
 		HttpFilters: []*hcm.HttpFilter{
 			{
 				Name:       "envoy.ext_authz1",
 				ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: extAuthAny},
 			},
+			{
+				Name: "envoy.filters.http.router",
+			},
 		},
 
 		RouteSpecifier: &hcm.HttpConnectionManager_RouteConfig{
 			RouteConfig: &route.RouteConfiguration{
-
 				Name: "local_route",
 				VirtualHosts: []*route.VirtualHost{
 					{
@@ -313,7 +335,7 @@ func makeListener(routes []*route.Route) *listener.Listener {
 	}
 }
 
-func makeRoute(prefix bool, path string, cluster string, materializedExtensions map[string]string) *route.Route {
+func makeRoute(prefix bool, path string, cluster string, extensions map[string]string) *route.Route {
 	var m route.RouteMatch
 
 	if prefix {
@@ -322,10 +344,10 @@ func makeRoute(prefix bool, path string, cluster string, materializedExtensions 
 		m = route.RouteMatch{PathSpecifier: &route.RouteMatch_Path{Path: path}}
 	}
 
-	extAuthzPerRouteAny, err := ptypes.MarshalAny(&envoy_extensions_filters_http_ext_authz_v3.ExtAuthzPerRoute{
-		Override: &envoy_extensions_filters_http_ext_authz_v3.ExtAuthzPerRoute_CheckSettings{
-			CheckSettings: &envoy_extensions_filters_http_ext_authz_v3.CheckSettings{
-				ContextExtensions: materializedExtensions,
+	extAuthzPerRouteAny, err := ptypes.MarshalAny(&extauthzv3.ExtAuthzPerRoute{
+		Override: &extauthzv3.ExtAuthzPerRoute_CheckSettings{
+			CheckSettings: &extauthzv3.CheckSettings{
+				ContextExtensions: extensions,
 			},
 		},
 	})

@@ -13,4 +13,4 @@ configMapGenerator:
   - manifest.yaml
 - name: envoy-config
   files:
-    - envoy-xds-config.yaml
+    - envoy.yaml

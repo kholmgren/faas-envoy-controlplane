@@ -15,6 +15,8 @@ spec:
       args:
         - 'serve'
         - '--debug'
+        - '--node-id'
+        - 'faas-envoy'
         - '/etc/faas/manifest.yaml'
       ports:
         - name: grpc

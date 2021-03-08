@@ -10,5 +10,8 @@ spec:
     - name: http
       port: 80
       targetPort: 18000
+    - name: http-x
+      port: 8080
+      targetPort: 8080
   selector:
     app: invoker

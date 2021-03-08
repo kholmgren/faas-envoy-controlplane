@@ -20,3 +20,4 @@
 /Godeps/
 
 .idea
+faas-envoy-controlplane

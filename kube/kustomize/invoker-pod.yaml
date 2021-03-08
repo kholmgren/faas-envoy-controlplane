@@ -17,20 +17,19 @@ spec:
       image: docker.io/envoyproxy/envoy:v1.17-latest
       args:
         - '-c'
-        - '/etc/envoy/envoy-xds-config.yaml'
+        - '/etc/envoy/envoy.yaml'
         - '-l'
-        - 'off'
-        - '--component-log-level'
-        - 'upstream:debug,connection:trace'
+        - 'debug'
+#        - '--component-log-level'
+#        - 'upstream:debug,connection:trace'
         - '--service-node'
-        - 'front-proxy'
+        - 'faas-envoy'
         - '--service-cluster'
-        - 'front-proxy'
+        - 'faas-cluster'
       ports:
-        - name: ingress
+        - name: http
           containerPort: 18000
           protocol: TCP
-      resources: { }
       volumeMounts:
         - name: envoy-volume
           mountPath: /etc/envoy
