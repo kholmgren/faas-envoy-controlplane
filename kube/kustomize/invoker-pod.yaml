@@ -20,8 +20,6 @@ spec:
         - '/etc/envoy/envoy.yaml'
         - '-l'
         - 'debug'
-#        - '--component-log-level'
-#        - 'upstream:debug,connection:trace'
         - '--service-node'
         - 'faas-envoy'
         - '--service-cluster'
