@@ -1,1 +1,1 @@
-# faas-invoker
+# faas-envoy-controlplane
